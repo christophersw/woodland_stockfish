@@ -50,25 +50,45 @@ class GameResult:
 
 
 def _cp(score: chess.engine.Score) -> float:
-    """Convert a Score to white-relative centipawns, clamping mate scores."""
+    """Convert a Score to white-relative centipawns, preserving mate distance."""
     if score.is_mate():
+        encoded = score.score(mate_score=10000)
+        if encoded is not None:
+            return float(encoded)
         mate = score.mate()
         return 10000.0 if (mate is not None and mate > 0) else -10000.0
     val = score.score()
     return float(val) if val is not None else 0.0
 
 
-def _win_prob(cp_white_relative: float) -> float:
-    """Approximate win probability for White from a centipawn eval."""
-    return 1.0 / (1.0 + math.exp(-cp_white_relative / 290.0))
+def _win_percent(cp: float) -> float:
+    """Win percentage (0–100) from a subjective centipawn eval.
+
+    Uses the Lichess empirical sigmoid derived from 2300+ rated games.
+    See https://github.com/lichess-org/lila/pull/11148
+    """
+    return 50 + 50 * (2 / (1 + math.exp(-0.00368208 * cp)) - 1)
 
 
-def _accuracy_from_wp_loss(total_wp_loss: float) -> float:
-    """chess.com-style accuracy from cumulative win-probability loss."""
-    if total_wp_loss <= 0:
+def _move_accuracy(wp_before: float, wp_after: float) -> float:
+    """Per-move accuracy from Win% before and after (both on 0–100 scale).
+
+    Lichess formula with +1 uncertainty bonus for imperfect analysis depth.
+    See https://lichess.org/page/accuracy
+    """
+    if wp_after >= wp_before:
         return 100.0
-    raw = 103.1668 * math.exp(-0.04354 * total_wp_loss) - 3.1669
+    win_diff = wp_before - wp_after
+    raw = 103.1668 * math.exp(-0.04354 * win_diff) - 3.1669 + 1
     return max(0.0, min(100.0, raw))
+
+
+def _harmonic_mean(values: list[float]) -> float:
+    """Harmonic mean, safe for near-zero values."""
+    if not values:
+        return 0.0
+    eps = 0.001
+    return len(values) / sum(1.0 / max(v, eps) for v in values)
 
 
 def _classify(cpl: float) -> str:
@@ -105,8 +125,8 @@ def analyze_pgn(
     limit = chess.engine.Limit(depth=depth)
 
     move_results: list[MoveResult] = []
-    white_wp_losses: list[float] = []
-    black_wp_losses: list[float] = []
+    white_move_accs: list[float] = []
+    black_move_accs: list[float] = []
     white_cpls: list[float] = []
     black_cpls: list[float] = []
 
@@ -139,17 +159,17 @@ def analyze_pgn(
             else:
                 cpl = max(0.0, after_cp - best_cp_before)
 
-            # Win-probability loss for the mover
-            wp_before = _win_prob(best_cp_before if is_white_move else -best_cp_before)
-            wp_after = _win_prob(after_cp if is_white_move else -after_cp)
-            wp_loss = max(0.0, wp_before - wp_after) * 100.0  # scale to 0-100
+            # Per-move accuracy (Lichess formula, 0-100 Win% scale)
+            wp_before = _win_percent(best_cp_before if is_white_move else -best_cp_before)
+            wp_after = _win_percent(after_cp if is_white_move else -after_cp)
+            move_acc = _move_accuracy(wp_before, wp_after)
 
             if is_white_move:
                 white_cpls.append(cpl)
-                white_wp_losses.append(wp_loss)
+                white_move_accs.append(move_acc)
             else:
                 black_cpls.append(cpl)
-                black_wp_losses.append(wp_loss)
+                black_move_accs.append(move_acc)
 
             move_results.append(MoveResult(
                 ply=ply,
@@ -164,11 +184,11 @@ def analyze_pgn(
             if move_callback:
                 move_callback(ply, total_moves, san)
 
-    def _stats(cpls: list[float], wp_losses: list[float]) -> PlayerStats:
+    def _stats(cpls: list[float], move_accs: list[float]) -> PlayerStats:
         if not cpls:
             return PlayerStats(accuracy=100.0, acpl=0.0, blunders=0, mistakes=0, inaccuracies=0)
         return PlayerStats(
-            accuracy=_accuracy_from_wp_loss(sum(wp_losses)),
+            accuracy=_harmonic_mean(move_accs),
             acpl=sum(cpls) / len(cpls),
             blunders=sum(1 for c in cpls if c >= _BLUNDER_CPL),
             mistakes=sum(1 for c in cpls if _MISTAKE_CPL <= c < _BLUNDER_CPL),
@@ -176,8 +196,8 @@ def analyze_pgn(
         )
 
     return GameResult(
-        white_stats=_stats(white_cpls, white_wp_losses),
-        black_stats=_stats(black_cpls, black_wp_losses),
+        white_stats=_stats(white_cpls, white_move_accs),
+        black_stats=_stats(black_cpls, black_move_accs),
         moves=move_results,
         engine_depth=depth,
         analyzed_at=datetime.now(timezone.utc),
