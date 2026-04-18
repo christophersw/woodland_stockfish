@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     stockfish_path: str = ""
     analysis_depth: int = 20
     analysis_threads: int = 1
+    lc0_path: str = ""
+    lc0_nodes: int = 800
+    lc0_network: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

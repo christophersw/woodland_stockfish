@@ -127,6 +127,42 @@ def _run_lightweight_migrations() -> None:
         "jobs_failed": "INTEGER",
     })
 
+    # analysis_jobs — add engine discriminator column
+    _add_missing_columns("analysis_jobs", {
+        "engine": "VARCHAR(16) DEFAULT 'stockfish'",
+    })
+
+    # lc0_game_analysis — new table for Leela Chess Zero WDL analysis
+    _add_missing_columns("lc0_game_analysis", {
+        "analyzed_at": "TIMESTAMP",
+        "engine_nodes": "INTEGER",
+        "network_name": "VARCHAR(120)",
+        "white_win_prob": "FLOAT",
+        "white_draw_prob": "FLOAT",
+        "white_loss_prob": "FLOAT",
+        "black_win_prob": "FLOAT",
+        "black_draw_prob": "FLOAT",
+        "black_loss_prob": "FLOAT",
+        "white_blunders": "INTEGER",
+        "white_mistakes": "INTEGER",
+        "white_inaccuracies": "INTEGER",
+        "black_blunders": "INTEGER",
+        "black_mistakes": "INTEGER",
+        "black_inaccuracies": "INTEGER",
+    })
+
+    # lc0_move_analysis — per-move WDL data
+    _add_missing_columns("lc0_move_analysis", {
+        "wdl_win": "INTEGER",
+        "wdl_draw": "INTEGER",
+        "wdl_loss": "INTEGER",
+        "cp_equiv": "FLOAT",
+        "best_move": "VARCHAR(32)",
+        "arrow_uci": "VARCHAR(8)",
+        "move_win_delta": "FLOAT",
+        "classification": "VARCHAR(16)",
+    })
+
 
 
 def get_session() -> Session:

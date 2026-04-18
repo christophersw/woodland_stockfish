@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import io
 import math
-from dataclasses import dataclass, field
+import statistics
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Generator
 
 import chess
 import chess.engine
@@ -14,9 +14,19 @@ import chess.pgn
 from woodland_pipeline.config import get_settings
 
 # Classification thresholds (centipawn loss from mover's perspective)
+# Matches Lichess: https://lichess.org/page/accuracy
 _BLUNDER_CPL = 300
 _MISTAKE_CPL = 100
 _INACCURACY_CPL = 50
+
+# Brilliant/great move detection thresholds
+# Brilliant: sacrifices material, move is best (CPL < 10), and position was not already clearly winning
+# Great: only-good-move in a difficult position (narrow margin, CPL < 10 but alternatives are bad)
+_BRILLIANT_MAX_CPL = 10          # must be (near-)best to earn !!
+_BRILLIANT_WIN_CEIL = 70.0       # don't award !! when already clearly winning (>70% win chance)
+_BRILLIANT_ALT_FLOOR = 150.0    # second-best alternative must be ≥150 cp worse to qualify
+_GREAT_MAX_CPL = 10              # must be (near-)best for !
+_GREAT_ALT_FLOOR = 80.0         # only-good-move: alternatives ≥80 cp worse
 
 
 @dataclass
@@ -28,7 +38,7 @@ class MoveResult:
     best_move: str        # UCI of the engine's top choice before this move
     arrow_uci: str        # same as best_move (consumed by the board UI)
     cpl: float            # centipawn loss for the side that just moved (≥ 0)
-    classification: str   # blunder / mistake / inaccuracy / good / excellent
+    classification: str   # brilliant / great / best / excellent / good / inaccuracy / mistake / blunder
 
 
 @dataclass
@@ -79,7 +89,7 @@ def _move_accuracy(wp_before: float, wp_after: float) -> float:
     if wp_after >= wp_before:
         return 100.0
     win_diff = wp_before - wp_after
-    raw = 103.1668 * math.exp(-0.04354 * win_diff) - 3.1669 + 1
+    raw = 103.1668100711649 * math.exp(-0.04354415386753951 * win_diff) - 3.166924740191411 + 1
     return max(0.0, min(100.0, raw))
 
 
@@ -91,15 +101,84 @@ def _harmonic_mean(values: list[float]) -> float:
     return len(values) / sum(1.0 / max(v, eps) for v in values)
 
 
-def _classify(cpl: float) -> str:
+def _weighted_mean(values: list[float], weights: list[float]) -> float:
+    """Weighted arithmetic mean."""
+    if not values:
+        return 0.0
+    total_weight = sum(weights)
+    if total_weight == 0:
+        return sum(values) / len(values)
+    return sum(v * w for v, w in zip(values, weights)) / total_weight
+
+
+def _game_accuracy(move_accs: list[float], win_percents: list[float]) -> float:
+    """Game-level accuracy: (volatility-weighted mean + harmonic mean) / 2.
+
+    Matches Lichess AccuracyPercent.scala — sliding window std-dev weights
+    emphasise moves played in volatile positions.
+    See https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala
+    """
+    n = len(move_accs)
+    if n == 0:
+        return 100.0
+    if n == 1:
+        return move_accs[0]
+
+    window_size = max(2, min(8, n // 10))
+
+    # Build one weight per move using the std-dev of a sliding window of win%s.
+    # Pad the front so every move gets a window of the same logical size.
+    weights: list[float] = []
+    for i in range(n):
+        start = max(0, i - window_size + 1)
+        window = win_percents[start : i + 1]
+        if len(window) < 2:
+            weights.append(0.5)
+        else:
+            sd = statistics.stdev(window)
+            weights.append(max(0.5, min(12.0, sd)))
+
+    harmonic = _harmonic_mean(move_accs)
+    weighted = _weighted_mean(move_accs, weights)
+    return (harmonic + weighted) / 2.0
+
+
+def _classify(
+    cpl: float,
+    wp_before: float,
+    wp_after: float,
+    best_cp_before: float,
+    second_cp_before: float | None,
+    is_capture: bool,
+) -> str:
+    """Classify a move.
+
+    brilliant (!!): near-best material sacrifice, not already clearly winning.
+    great    (!):  only-good-move in a difficult position.
+    best:          CPL < 10, neither brilliant nor great.
+    excellent:     CPL 10–49.
+    good:          (reserved for future use / removed from this scale)
+    inaccuracy:    CPL 50–99.
+    mistake:       CPL 100–299.
+    blunder:       CPL ≥ 300.
+    """
     if cpl >= _BLUNDER_CPL:
         return "blunder"
     if cpl >= _MISTAKE_CPL:
         return "mistake"
     if cpl >= _INACCURACY_CPL:
         return "inaccuracy"
-    if cpl >= 10:
-        return "good"
+
+    alt_cpl = (best_cp_before - second_cp_before) if second_cp_before is not None else 0.0
+
+    if cpl < _BRILLIANT_MAX_CPL and is_capture and wp_before < _BRILLIANT_WIN_CEIL and alt_cpl >= _BRILLIANT_ALT_FLOOR:
+        return "brilliant"
+
+    if cpl < _GREAT_MAX_CPL and second_cp_before is not None and alt_cpl >= _GREAT_ALT_FLOOR:
+        return "great"
+
+    if cpl < _BRILLIANT_MAX_CPL:
+        return "best"
     return "excellent"
 
 
@@ -129,14 +208,12 @@ def analyze_pgn(
     black_move_accs: list[float] = []
     white_cpls: list[float] = []
     black_cpls: list[float] = []
+    white_wps: list[float] = []   # mover-relative win% after each white move
+    black_wps: list[float] = []   # mover-relative win% after each black move
 
     with chess.engine.SimpleEngine.popen_uci(stockfish_path) as engine:
         engine.configure(engine_options)
         board = game.board()
-
-        # Eval before the first move (white's perspective)
-        prev_info = engine.analyse(board, limit)
-        prev_cp = _cp(prev_info["score"].white())
 
         for node in game.mainline():
             move = node.move
@@ -144,11 +221,22 @@ def analyze_pgn(
             is_white_move = board.turn == chess.WHITE
 
             san = board.san(move)
-            best_result = engine.analyse(board, limit)
-            best_cp_before = _cp(best_result["score"].white())
-            best_move_uci = best_result.get("pv", [None])[0]
+            best_result = engine.analyse(board, limit, multipv=2)
+            # multipv returns a list; first entry is best move
+            if isinstance(best_result, list):
+                top = best_result[0]
+                second_cp_before: float | None = (
+                    _cp(best_result[1]["score"].white()) if len(best_result) > 1 else None
+                )
+            else:
+                top = best_result
+                second_cp_before = None
+
+            best_cp_before = _cp(top["score"].white())
+            best_move_uci = top.get("pv", [None])[0]
             best_move_str = best_move_uci.uci() if best_move_uci else ""
 
+            is_capture = board.is_capture(move)
             board.push(move)
             after_info = engine.analyse(board, limit)
             after_cp = _cp(after_info["score"].white())
@@ -156,20 +244,34 @@ def analyze_pgn(
             # CPL from the mover's perspective
             if is_white_move:
                 cpl = max(0.0, best_cp_before - after_cp)
+                second_cp_mover = second_cp_before
             else:
                 cpl = max(0.0, after_cp - best_cp_before)
+                second_cp_mover = -second_cp_before if second_cp_before is not None else None
 
             # Per-move accuracy (Lichess formula, 0-100 Win% scale)
             wp_before = _win_percent(best_cp_before if is_white_move else -best_cp_before)
             wp_after = _win_percent(after_cp if is_white_move else -after_cp)
             move_acc = _move_accuracy(wp_before, wp_after)
 
+            best_cp_mover = best_cp_before if is_white_move else -best_cp_before
+            classification = _classify(
+                cpl=cpl,
+                wp_before=wp_before,
+                wp_after=wp_after,
+                best_cp_before=best_cp_mover,
+                second_cp_before=second_cp_mover,
+                is_capture=is_capture,
+            )
+
             if is_white_move:
                 white_cpls.append(cpl)
                 white_move_accs.append(move_acc)
+                white_wps.append(wp_after)
             else:
                 black_cpls.append(cpl)
                 black_move_accs.append(move_acc)
+                black_wps.append(wp_after)
 
             move_results.append(MoveResult(
                 ply=ply,
@@ -179,16 +281,16 @@ def analyze_pgn(
                 best_move=best_move_str,
                 arrow_uci=best_move_str,
                 cpl=cpl,
-                classification=_classify(cpl),
+                classification=classification,
             ))
             if move_callback:
                 move_callback(ply, total_moves, san)
 
-    def _stats(cpls: list[float], move_accs: list[float]) -> PlayerStats:
+    def _stats(cpls: list[float], move_accs: list[float], wps: list[float]) -> PlayerStats:
         if not cpls:
             return PlayerStats(accuracy=100.0, acpl=0.0, blunders=0, mistakes=0, inaccuracies=0)
         return PlayerStats(
-            accuracy=_harmonic_mean(move_accs),
+            accuracy=_game_accuracy(move_accs, wps),
             acpl=sum(cpls) / len(cpls),
             blunders=sum(1 for c in cpls if c >= _BLUNDER_CPL),
             mistakes=sum(1 for c in cpls if _MISTAKE_CPL <= c < _BLUNDER_CPL),
@@ -196,8 +298,8 @@ def analyze_pgn(
         )
 
     return GameResult(
-        white_stats=_stats(white_cpls, white_move_accs),
-        black_stats=_stats(black_cpls, black_move_accs),
+        white_stats=_stats(white_cpls, white_move_accs, white_wps),
+        black_stats=_stats(black_cpls, black_move_accs, black_wps),
         moves=move_results,
         engine_depth=depth,
         analyzed_at=datetime.now(timezone.utc),
