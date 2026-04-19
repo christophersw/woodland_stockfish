@@ -137,6 +137,8 @@ class AnalysisJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    runpod_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     game: Mapped[Game] = relationship(back_populates="analysis_jobs")
 

@@ -349,3 +349,28 @@ def analyze_pgn(
         engine_depth=depth,
         analyzed_at=datetime.now(timezone.utc),
     )
+
+
+def analyse_game(
+    game: chess.pgn.Game,
+    stockfish_path: str,
+    depth: int = 20,
+    threads: int = 1,
+    hash_mb: int = 256,
+) -> GameResult:
+    """Analyse a pre-parsed chess.pgn.Game object.
+
+    Convenience wrapper around analyze_pgn() for callers that already hold a
+    parsed game (e.g. the RunPod serverless handler).
+
+    Returns the same GameResult as analyze_pgn().
+    """
+    exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
+    pgn_text = game.accept(exporter)
+    return analyze_pgn(
+        pgn_text=pgn_text,
+        stockfish_path=stockfish_path,
+        depth=depth,
+        threads=threads,
+        hash_mb=hash_mb,
+    )

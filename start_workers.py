@@ -72,6 +72,14 @@ def build_cmd() -> list[str]:
 
 
 def main() -> None:
+    # If a RunPod endpoint is configured, use the lightweight job submitter
+    # instead of running Stockfish locally.
+    if _env("RUNPOD_ENDPOINT_ID"):
+        log.info("RUNPOD_ENDPOINT_ID detected — starting RunPod job submitter")
+        from stockfish_pipeline.ingest.job_submitter import run_submitter_loop
+        run_submitter_loop()
+        return
+
     cmd = build_cmd()
     log.info("Starting Stockfish worker: %s", " ".join(cmd))
     proc = subprocess.run(cmd)
