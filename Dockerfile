@@ -12,9 +12,8 @@ RUN apt-get update \
         tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Install CPU-optimized Stockfish sf_18 (avx2 — safe for all x86_64 hosts from ~2013+,
-# significantly faster than the unoptimized Debian package).
-RUN curl -fsSL "https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-avx2.tar" \
+# Install CPU-optimized Stockfish sf_18 (bmi2 — optimized for Intel Haswell+ / Icelake with BMI2/AVX2).
+RUN curl -fsSL "https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-bmi2.tar" \
         -o /tmp/stockfish.tar \
     && tar -xf /tmp/stockfish.tar -C /tmp \
     && find /tmp -name "stockfish*" -type f -perm /111 | head -1 | xargs -I{} mv {} /usr/local/bin/stockfish \
