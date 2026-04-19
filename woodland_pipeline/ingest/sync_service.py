@@ -93,7 +93,7 @@ class ChessComSyncService:
         game = session.get(Game, game_id)
         created = game is None
         if created:
-            game = Game(id=game_id, player_id=player.id)
+            game = Game(id=game_id)
             session.add(game)
 
         white = payload.get("white", {})
@@ -117,18 +117,9 @@ class ChessComSyncService:
         result_pgn = payload.get("pgn", "")
         result_header = self._result_from_pgn(result_pgn)
 
-        opening_name, eco_code, opening_plies = self._opening_from_pgn(result_pgn)
+        opening_name, eco_code = self._opening_from_pgn(result_pgn)
 
-        # Only set player_id on creation — never overwrite it on updates so that
-        # games shared between two tracked players don't flip ownership on each sync.
-        if created:
-            game.player_id = player.id
         game.played_at = played_at
-        game.opponent_name = (opp_side.get("username") or "unknown").lower()
-        game.color = "White" if is_white else "Black"
-        game.result = result
-        game.player_rating = self._safe_int(my_side.get("rating"))
-        game.opponent_rating = self._safe_int(opp_side.get("rating"))
         game.time_control = payload.get("time_control", "")
         game.white_username = white_user or None
         game.black_username = black_user or None
@@ -141,11 +132,6 @@ class ChessComSyncService:
             game.winner_username = black_user or None
         else:
             game.winner_username = None
-        game.opening_ply_1 = opening_plies[0] if len(opening_plies) >= 1 else None
-        game.opening_ply_2 = opening_plies[1] if len(opening_plies) >= 2 else None
-        game.opening_ply_3 = opening_plies[2] if len(opening_plies) >= 3 else None
-        game.opening_ply_4 = opening_plies[3] if len(opening_plies) >= 4 else None
-        game.opening_ply_5 = opening_plies[4] if len(opening_plies) >= 5 else None
         game.eco_code = eco_code
         game.opening_name = opening_name
         game.lichess_opening = self._lichess_opening_from_pgn(result_pgn)
@@ -237,17 +223,20 @@ class ChessComSyncService:
         return value or None
 
     @staticmethod
-    def _opening_from_pgn(pgn: str) -> tuple[str, str, list[str]]:
+    def _opening_from_pgn(pgn: str) -> tuple[str, str]:
         if not pgn.strip():
-            return "Unknown", "", []
+            return "Unknown", ""
 
         game = chess.pgn.read_game(io.StringIO(pgn))
         if game is None:
-            return "Unknown", "", []
+            return "Unknown", ""
 
         headers = game.headers
         opening_name = headers.get("Opening", "").strip()
         eco = headers.get("ECO", "").strip()
+
+        if opening_name:
+            return opening_name, eco
 
         board = game.board()
         sans: list[str] = []
@@ -257,12 +246,7 @@ class ChessComSyncService:
             if idx >= 5:
                 break
 
-        if opening_name:
-            return opening_name, eco, sans
-
-        if sans:
-            return " ".join(sans), eco, sans
-        return "Unknown", eco, sans
+        return (" ".join(sans) if sans else "Unknown"), eco
 
     @staticmethod
     def _lichess_opening_from_pgn(pgn: str) -> str | None:
