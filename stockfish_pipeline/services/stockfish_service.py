@@ -212,59 +212,77 @@ def analyze_pgn(
     white_wps: list[float] = []   # mover-relative win% after each white move
     black_wps: list[float] = []   # mover-relative win% after each black move
 
+    # Collect all positions in one pass so we can analyse each board exactly once.
+    # Each position's pre-move eval doubles as the previous position's post-move eval.
+    # This cuts engine calls from ~3N to N+1 (one multipv=2 call per position, plus
+    # one call for the final position to get the last move's post-move eval).
+    mainline: list[tuple[chess.Board, chess.Move, str, int]] = []
+    _scan_board = game.board()
+    for node in game.mainline():
+        move = node.move
+        ply = _scan_board.ply() + 1
+        san = _scan_board.san(move)
+        mainline.append((_scan_board.copy(), move, san, ply))
+        _scan_board.push(move)
+    final_board = _scan_board  # position after the last move
+
+    # Analyse every pre-move position once (multipv=2) plus the final position.
+    # pos_infos[i] corresponds to mainline[i]'s pre-move board; pos_infos[N] is the final board.
+    # This gives each move's "after" eval for free: it equals pos_infos[i+1].best_cp.
+    # Net result: N+1 engine calls instead of ~3N.
+    def _analyse_board(engine: chess.engine.SimpleEngine, board: chess.Board) -> tuple[float, float | None, str]:
+        """Return (best_cp_white, second_cp_white_or_None, best_move_uci_str)."""
+        legal = list(board.legal_moves)
+        mpv = 1 if len(legal) == 1 else 2
+        result = engine.analyse(board, limit, multipv=mpv)
+        if isinstance(result, list):
+            top = result[0]
+            second_cp: float | None = _cp(result[1]["score"].white()) if len(result) > 1 else None
+        else:
+            top = result
+            second_cp = None
+        best_cp = _cp(top["score"].white())
+        best_uci = top.get("pv", [None])[0]
+        return best_cp, second_cp, best_uci.uci() if best_uci else ""
+
     with chess.engine.SimpleEngine.popen_uci(stockfish_path) as engine:
         engine.configure(engine_options)
-        board = game.board()
 
-        for node in game.mainline():
-            move = node.move
-            ply = board.ply() + 1        # 1-based ply after the move
+        # Gather evals for all N pre-move positions + the final position (N+1 total calls).
+        pos_infos: list[tuple[float, float | None, str]] = []
+        boards_to_analyse = [b for b, _, _, _ in mainline] + [final_board]
+        for i, board in enumerate(boards_to_analyse):
+            pos_infos.append(_analyse_board(engine, board))
+            # Fire move_callback after each pre-move position is analysed (skip final board).
+            if move_callback and i < len(mainline):
+                _, _, san, ply = mainline[i]
+                move_callback(ply, total_moves, san)
+
+        # Pair pre/post evals and build results.
+        for idx, (board, move, san, ply) in enumerate(mainline):
+            best_cp_before, second_cp_before, best_move_str = pos_infos[idx]
+            after_cp = pos_infos[idx + 1][0]  # next position's best_cp = this move's post-move eval
+
             is_white_move = board.turn == chess.WHITE
-
-            san = board.san(move)
-
-            # Skip full analysis when there's only one legal move — forced moves
-            # can't be classified meaningfully and the eval carries over from before.
+            is_capture = board.is_capture(move)
             legal_moves = list(board.legal_moves)
+
+            board_after = board.copy()
+            board_after.push(move)
+
             if len(legal_moves) == 1:
-                board.push(move)
-                after_info = engine.analyse(board, limit)
-                after_cp = _cp(after_info["score"].white())
                 move_results.append(MoveResult(
                     ply=ply,
                     san=san,
-                    fen=board.fen(),
+                    fen=board_after.fen(),
                     cp_eval=after_cp,
                     best_move=move.uci(),
                     arrow_uci=move.uci(),
                     cpl=0.0,
                     classification="best",
                 ))
-                if move_callback:
-                    move_callback(ply, total_moves, san)
                 continue
 
-            best_result = engine.analyse(board, limit, multipv=2)
-            # multipv returns a list; first entry is best move
-            if isinstance(best_result, list):
-                top = best_result[0]
-                second_cp_before: float | None = (
-                    _cp(best_result[1]["score"].white()) if len(best_result) > 1 else None
-                )
-            else:
-                top = best_result
-                second_cp_before = None
-
-            best_cp_before = _cp(top["score"].white())
-            best_move_uci = top.get("pv", [None])[0]
-            best_move_str = best_move_uci.uci() if best_move_uci else ""
-
-            is_capture = board.is_capture(move)
-            board.push(move)
-            after_info = engine.analyse(board, limit)
-            after_cp = _cp(after_info["score"].white())
-
-            # CPL from the mover's perspective
             if is_white_move:
                 cpl = max(0.0, best_cp_before - after_cp)
                 second_cp_mover = second_cp_before
@@ -272,7 +290,6 @@ def analyze_pgn(
                 cpl = max(0.0, after_cp - best_cp_before)
                 second_cp_mover = -second_cp_before if second_cp_before is not None else None
 
-            # Per-move accuracy (Lichess formula, 0-100 Win% scale)
             wp_before = _win_percent(best_cp_before if is_white_move else -best_cp_before)
             wp_after = _win_percent(after_cp if is_white_move else -after_cp)
             move_acc = _move_accuracy(wp_before, wp_after)
@@ -299,15 +316,13 @@ def analyze_pgn(
             move_results.append(MoveResult(
                 ply=ply,
                 san=san,
-                fen=board.fen(),
+                fen=board_after.fen(),
                 cp_eval=after_cp,
                 best_move=best_move_str,
                 arrow_uci=best_move_str,
                 cpl=cpl,
                 classification=classification,
             ))
-            if move_callback:
-                move_callback(ply, total_moves, san)
 
     def _stats(cpls: list[float], move_accs: list[float], wps: list[float]) -> PlayerStats:
         if not cpls:
