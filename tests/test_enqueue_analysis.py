@@ -10,9 +10,9 @@ from tests.conftest import configure_test_db
 def test_enqueue_unanalyzed_creates_pending_job(monkeypatch, tmp_path) -> None:
     configure_test_db(monkeypatch, tmp_path)
 
-    from woodland_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed
-    from woodland_pipeline.storage.database import get_session, init_db
-    from woodland_pipeline.storage.models import AnalysisJob, Game, Player
+    from stockfish_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed
+    from stockfish_pipeline.storage.database import get_session, init_db
+    from stockfish_pipeline.storage.models import AnalysisJob, Game, Player
 
     init_db()
 
@@ -50,9 +50,9 @@ def test_enqueue_unanalyzed_creates_pending_job(monkeypatch, tmp_path) -> None:
 def test_enqueue_skips_when_completed_job_exists(monkeypatch, tmp_path) -> None:
     configure_test_db(monkeypatch, tmp_path)
 
-    from woodland_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed
-    from woodland_pipeline.storage.database import get_session, init_db
-    from woodland_pipeline.storage.models import AnalysisJob, Game, Player
+    from stockfish_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed
+    from stockfish_pipeline.storage.database import get_session, init_db
+    from stockfish_pipeline.storage.models import AnalysisJob, Game, Player
 
     init_db()
 

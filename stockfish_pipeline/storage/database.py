@@ -3,8 +3,8 @@ import threading
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from woodland_pipeline.config import get_settings
-from woodland_pipeline.storage.models import Base
+from stockfish_pipeline.config import get_settings
+from stockfish_pipeline.storage.models import Base
 
 
 settings = get_settings()

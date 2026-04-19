@@ -2,16 +2,16 @@
 
 Usage examples:
   # Enqueue all unanalyzed games, then run analysis on this machine:
-  python -m woodland_pipeline.ingest.run_analysis_worker --enqueue
+  python -m stockfish_pipeline.ingest.run_analysis_worker --enqueue
 
   # Run worker using a specific Stockfish binary:
-  python -m woodland_pipeline.ingest.run_analysis_worker --stockfish /usr/local/bin/stockfish
+  python -m stockfish_pipeline.ingest.run_analysis_worker --stockfish /usr/local/bin/stockfish
 
   # Full pipeline: enqueue + analyze, depth 18, exit when queue empty:
-  python -m woodland_pipeline.ingest.run_analysis_worker --enqueue --stockfish /path/to/sf --depth 18 --no-poll
+  python -m stockfish_pipeline.ingest.run_analysis_worker --enqueue --stockfish /path/to/sf --depth 18 --no-poll
 
   # Just show queue status:
-  python -m woodland_pipeline.ingest.run_analysis_worker --status
+  python -m stockfish_pipeline.ingest.run_analysis_worker --status
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _find_stockfish(given: str) -> str:
 
 
 def main() -> None:
-    from woodland_pipeline.config import get_settings
+    from stockfish_pipeline.config import get_settings
 
     settings = get_settings()
 
@@ -60,8 +60,8 @@ def main() -> None:
     parser.add_argument("--status", action="store_true", help="Print queue status and exit")
     args = parser.parse_args()
 
-    from woodland_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed, queue_status
-    from woodland_pipeline.storage.database import init_db
+    from stockfish_pipeline.ingest.enqueue_analysis import enqueue_unanalyzed, queue_status
+    from stockfish_pipeline.storage.database import init_db
 
     init_db()
 
@@ -88,7 +88,7 @@ def main() -> None:
 
     log.info("Using Stockfish: %s", sf_path)
 
-    from woodland_pipeline.ingest.analysis_worker import run_worker
+    from stockfish_pipeline.ingest.analysis_worker import run_worker
 
     run_worker(
         stockfish_path=sf_path,

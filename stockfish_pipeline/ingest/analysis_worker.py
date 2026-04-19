@@ -15,9 +15,9 @@ from tqdm import tqdm
 
 _IS_TTY = sys.stdout.isatty()
 
-from woodland_pipeline.services.stockfish_service import analyze_pgn
-from woodland_pipeline.storage.database import ENGINE, get_session, init_db
-from woodland_pipeline.storage.models import AnalysisJob, Game, GameAnalysis, MoveAnalysis, WorkerHeartbeat
+from stockfish_pipeline.services.stockfish_service import analyze_pgn
+from stockfish_pipeline.storage.database import ENGINE, get_session, init_db
+from stockfish_pipeline.storage.models import AnalysisJob, Game, GameAnalysis, MoveAnalysis, WorkerHeartbeat
 
 log = logging.getLogger(__name__)
 
@@ -235,7 +235,7 @@ _STALE_MINUTES = 10
 def _recover_stale_jobs() -> int:
     """Reset jobs stuck in 'running' for longer than _STALE_MINUTES back to 'pending'."""
     from sqlalchemy import update, func
-    from woodland_pipeline.storage.database import ENGINE
+    from stockfish_pipeline.storage.database import ENGINE
 
     is_pg = ENGINE.dialect.name == "postgresql"
     with get_session() as session:

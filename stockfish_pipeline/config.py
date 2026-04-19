@@ -2,18 +2,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Woodland Chess Pipeline"
+    app_name: str = "Stockfish Pipeline"
     database_url: str = ""
     chess_com_usernames: str = ""
-    chess_com_user_agent: str = "woodland-chess-pipeline/0.1"
+    chess_com_user_agent: str = "stockfish-pipeline/0.1"
     ingest_month_limit: int = 24
     stockfish_path: str = ""
     analysis_depth: int = 20
     analysis_threads: int = 1
     analysis_hash_mb: int = 256
-    lc0_path: str = ""
-    lc0_nodes: int = 800
-    lc0_network: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

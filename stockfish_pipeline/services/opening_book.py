@@ -16,8 +16,8 @@ import chess
 import chess.pgn
 from sqlalchemy import func, select
 
-from woodland_pipeline.storage.database import get_session, init_db
-from woodland_pipeline.storage.models import OpeningBook
+from stockfish_pipeline.storage.database import get_session, init_db
+from stockfish_pipeline.storage.models import OpeningBook
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ def backfill_lichess_openings(batch_size: int = 500) -> int:
 
     Returns the number of games updated.
     """
-    from woodland_pipeline.storage.models import Game
+    from stockfish_pipeline.storage.models import Game
 
     book = _load_book()
     updated = 0

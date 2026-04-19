@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from woodland_pipeline.config import get_settings
-from woodland_pipeline.ingest.sync_service import ChessComSyncService
+from stockfish_pipeline.config import get_settings
+from stockfish_pipeline.ingest.sync_service import ChessComSyncService
 
 
 def _render_bar(current: int, total: int, width: int = 28) -> str:

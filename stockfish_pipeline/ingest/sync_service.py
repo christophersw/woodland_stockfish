@@ -9,10 +9,10 @@ import io
 import chess.pgn
 from sqlalchemy import select
 
-from woodland_pipeline.config import get_settings
-from woodland_pipeline.ingest.chesscom_client import ChessComClient
-from woodland_pipeline.storage.database import get_session, init_db
-from woodland_pipeline.storage.models import Game, GameParticipant, Player
+from stockfish_pipeline.config import get_settings
+from stockfish_pipeline.ingest.chesscom_client import ChessComClient
+from stockfish_pipeline.storage.database import get_session, init_db
+from stockfish_pipeline.storage.models import Game, GameParticipant, Player
 
 
 @dataclass
@@ -251,7 +251,7 @@ class ChessComSyncService:
     @staticmethod
     def _lichess_opening_from_pgn(pgn: str) -> str | None:
         """Return the most specific Lichess opening name for a PGN, or None."""
-        from woodland_pipeline.services.opening_book import opening_at_each_ply
+        from stockfish_pipeline.services.opening_book import opening_at_each_ply
         if not pgn or not pgn.strip():
             return None
         plies = opening_at_each_ply(pgn, max_ply=20)

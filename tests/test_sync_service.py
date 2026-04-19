@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from woodland_pipeline.ingest.sync_service import ChessComSyncService
+from stockfish_pipeline.ingest.sync_service import ChessComSyncService
 
 
 def test_normalize_result_variants() -> None:

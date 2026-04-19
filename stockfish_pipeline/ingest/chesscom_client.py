@@ -4,7 +4,7 @@ import json
 import urllib.request
 from typing import Any
 
-from woodland_pipeline.config import get_settings
+from stockfish_pipeline.config import get_settings
 
 
 class ChessComClient:

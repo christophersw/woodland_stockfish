@@ -11,7 +11,7 @@ import chess
 import chess.engine
 import chess.pgn
 
-from woodland_pipeline.config import get_settings
+from stockfish_pipeline.config import get_settings
 
 # Classification thresholds (centipawn loss from mover's perspective)
 # Matches Lichess: https://lichess.org/page/accuracy

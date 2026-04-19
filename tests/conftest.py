@@ -10,9 +10,9 @@ def configure_test_db(monkeypatch, tmp_path: Path) -> str:
     monkeypatch.setenv("DATABASE_URL", database_url)
 
     # Ensure modules pick up the current DATABASE_URL for each test.
-    import woodland_pipeline.storage.database as db_module
-    import woodland_pipeline.storage.models as models_module
-    import woodland_pipeline.ingest.enqueue_analysis as enqueue_module
+    import stockfish_pipeline.storage.database as db_module
+    import stockfish_pipeline.storage.models as models_module
+    import stockfish_pipeline.ingest.enqueue_analysis as enqueue_module
 
     importlib.reload(models_module)
     importlib.reload(db_module)
