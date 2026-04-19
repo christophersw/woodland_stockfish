@@ -14,7 +14,7 @@ RUN apt-get update \
         ninja-build \
         build-essential \
         libopenblas-dev \
-        zlib1g \
+        zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --recurse-submodules https://github.com/LeelaChessZero/lc0.git /tmp/lc0 \
