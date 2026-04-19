@@ -25,7 +25,8 @@ RUN git clone --recurse-submodules https://github.com/LeelaChessZero/lc0.git /tm
 
 COPY pyproject.toml README.md ./
 COPY woodland_pipeline ./woodland_pipeline
+COPY start_workers.py ./
 
 RUN pip install --no-cache-dir .
 
-CMD ["python", "-m", "woodland_pipeline.ingest.run_analysis_worker"]
+CMD ["python", "start_workers.py"]

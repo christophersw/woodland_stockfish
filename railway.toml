@@ -2,5 +2,5 @@
 builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "python -m woodland_pipeline.ingest.run_analysis_worker"
+startCommand = "python start_workers.py"
 restartPolicyType = "ALWAYS"

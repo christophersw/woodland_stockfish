@@ -40,23 +40,56 @@ Options:
 python -m woodland_pipeline.ingest.run_analysis_worker --enqueue-only
 ```
 
-## Run Stockfish worker
+## Run workers
+
+Use `start_workers.py` as the single entry point. Set `WORKER_MODE` to choose what runs:
+
+| `WORKER_MODE` | What runs |
+|---|---|
+| `stockfish` | Stockfish analysis worker only (default) |
+| `lc0` | Lc0 analysis worker only |
+| `both` | Both workers concurrently |
 
 ```bash
-python -m woodland_pipeline.ingest.run_analysis_worker --no-poll
+WORKER_MODE=stockfish python start_workers.py
+WORKER_MODE=lc0 python start_workers.py
+WORKER_MODE=both python start_workers.py
 ```
 
-Useful flags:
-- `--stockfish /path/to/stockfish`
-- `--depth 20`
-- `--threads 1`
-- `--limit 100`
-- `--status`
+All flags are passed via environment variables — no CLI arguments needed:
 
-## Combined enqueue + analyze (Stockfish)
+### Stockfish env vars
+
+| Variable | Description | Default |
+|---|---|---|
+| `STOCKFISH_PATH` | Path to stockfish binary | auto-detect |
+| `ANALYSIS_DEPTH` | Analysis depth | `20` |
+| `ANALYSIS_THREADS` | Threads per game | `1` |
+| `SF_ENQUEUE` | Enqueue unanalyzed games before starting | — |
+| `SF_ENQUEUE_ONLY` | Enqueue jobs and exit | — |
+| `SF_ENQUEUE_LIMIT` | Max games to enqueue | — |
+| `SF_LIMIT` | Stop after N games | — |
+| `SF_NO_POLL` | Exit when queue empty | — |
+| `SF_POLL_INTERVAL` | Seconds between queue checks | `5` |
+
+### Lc0 env vars
+
+| Variable | Description | Default |
+|---|---|---|
+| `LC0_PATH` | Path to lc0 binary | required |
+| `LC0_NODES` | MCTS node budget per position | `800` |
+| `LC0_ENQUEUE` | Enqueue all games without an lc0 job before running | — |
+| `LC0_LIMIT` | Stop after N games | — |
+| `LC0_POLL_INTERVAL` | Seconds between queue checks | `5` |
+
+You can still invoke workers directly for debugging:
 
 ```bash
+# Stockfish
 python -m woodland_pipeline.ingest.run_analysis_worker --enqueue --no-poll
+
+# Lc0
+python -m woodland_pipeline.ingest.run_lc0_worker --enqueue --lc0-path /path/to/lc0 --nodes 800
 ```
 
 ---
@@ -64,34 +97,6 @@ python -m woodland_pipeline.ingest.run_analysis_worker --enqueue --no-poll
 ## Lc0 WDL Analysis
 
 Leela Chess Zero outputs native **Win/Draw/Loss probabilities** via `UCI_ShowWDL=true`. The Lc0 worker shares the same `analysis_jobs` queue table, distinguished by an `engine='lc0'` column.
-
-### Queue Lc0 jobs
-
-```bash
-python -m woodland_pipeline.ingest.run_lc0_worker --enqueue --lc0-path /path/to/lc0
-```
-
-### Run the Lc0 worker
-
-```bash
-python -m woodland_pipeline.ingest.run_lc0_worker --lc0-path /path/to/lc0
-```
-
-### Combined enqueue + analyze (Lc0)
-
-```bash
-python -m woodland_pipeline.ingest.run_lc0_worker --enqueue --lc0-path /path/to/lc0 --nodes 800
-```
-
-**Options:**
-
-| Flag | Description |
-|---|---|
-| `--lc0-path /path/to/lc0` | Path to the `lc0` binary (or set `LC0_PATH` in `.env`) |
-| `--nodes N` | MCTS node budget per position (default `800`) |
-| `--enqueue` | Enqueue all games without an `lc0` job before running |
-| `--limit N` | Stop after N games |
-| `--poll-interval N` | Seconds between queue checks; `0` exits when empty |
 
 ### Node budget guidance
 
@@ -231,13 +236,13 @@ Thresholds are in win-percentage-loss units:
 
 Stockfish's centipawn score cannot distinguish a dead draw (`wdl 50 900 50`) from a chaotic double-edged position (`wdl 450 100 450`) — both might evaluate near 0 cp. Lc0's explicit draw probability exposes this distinction directly.
 
-## Deploy to Railway (polling analysis processor)
+## Deploy to Railway
 
-This repo is configured for Railway Config-as-Code + Docker build so Stockfish is available at runtime.
+This repo uses Config-as-Code + Docker so Stockfish and Lc0 are available at runtime.
 
-Included deployment files:
-- `railway.toml` (builder + start command)
-- `Dockerfile` (installs Python deps and Stockfish)
+Deployment files:
+- `railway.toml` — builder + start command (`python start_workers.py`)
+- `Dockerfile` — installs Python deps, Stockfish, and Lc0
 - `.dockerignore`
 
 ### 1. Create Railway services
@@ -248,36 +253,36 @@ Included deployment files:
 
 ### 2. Set environment variables
 
-Set these on the worker service:
+Required:
 - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
-- `CHESS_COM_USERNAMES` = `alice,bob` (or your username list)
-- `ANALYSIS_DEPTH` = `20` (optional)
-- `ANALYSIS_THREADS` = `1` (optional)
+- `CHESS_COM_USERNAMES` = `alice,bob`
+- `WORKER_MODE` = `stockfish`, `lc0`, or `both`
 
-Optional overrides:
-- `STOCKFISH_PATH=/usr/games/stockfish`
-- `CHESS_COM_USER_AGENT=woodland-chess-pipeline/0.1`
+Stockfish options (optional):
+- `ANALYSIS_DEPTH` = `20`
+- `ANALYSIS_THREADS` = `1`
+- `STOCKFISH_PATH` = `/usr/games/stockfish`
+- `SF_ENQUEUE` = `true` (enqueue unanalyzed games on startup)
+
+Lc0 options (required if `WORKER_MODE=lc0` or `both`):
+- `LC0_PATH` = `/usr/games/lc0`
+- `LC0_NODES` = `800`
+- `LC0_ENQUEUE` = `true` (enqueue games without lc0 jobs on startup)
 
 ### 3. Deploy
 
-Push to `main` (or trigger a manual deploy).
+Push to `main` (or trigger a manual deploy). The service runs `start_workers.py`, which polls the queue continuously based on `WORKER_MODE`.
 
-This service starts with:
+### 4. Enqueue jobs (one-off)
+
+To enqueue without running a full worker:
 
 ```bash
-python -m woodland_pipeline.ingest.run_analysis_worker
+SF_ENQUEUE_ONLY=true python start_workers.py
 ```
 
-That command runs in polling mode by default, continuously checking the queue for new pending jobs.
-
-### 4. Enqueue jobs
-
-This worker only processes queued jobs. Enqueue jobs using one of these patterns:
-
-- one-off local/CLI run:
+Or via the individual module:
 
 ```bash
 python -m woodland_pipeline.ingest.run_analysis_worker --enqueue-only
 ```
-
-- separate Railway service or cron job that runs enqueue logic.
