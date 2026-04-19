@@ -187,6 +187,7 @@ def analyze_pgn(
     stockfish_path: str,
     depth: int = 20,
     threads: int = 1,
+    hash_mb: int = 256,
     move_callback: "callable[[int, int, str], None] | None" = None,
 ) -> GameResult:
     """Analyze a full game PGN and return per-move results plus player stats.
@@ -200,7 +201,7 @@ def analyze_pgn(
     # Count total moves up front so callers can show a denominator
     total_moves = sum(1 for _ in game.mainline_moves())
 
-    engine_options: dict = {"Threads": str(threads)}
+    engine_options: dict = {"Threads": str(threads), "Hash": str(hash_mb)}
     limit = chess.engine.Limit(depth=depth)
 
     move_results: list[MoveResult] = []
@@ -221,6 +222,28 @@ def analyze_pgn(
             is_white_move = board.turn == chess.WHITE
 
             san = board.san(move)
+
+            # Skip full analysis when there's only one legal move — forced moves
+            # can't be classified meaningfully and the eval carries over from before.
+            legal_moves = list(board.legal_moves)
+            if len(legal_moves) == 1:
+                board.push(move)
+                after_info = engine.analyse(board, limit)
+                after_cp = _cp(after_info["score"].white())
+                move_results.append(MoveResult(
+                    ply=ply,
+                    san=san,
+                    fen=board.fen(),
+                    cp_eval=after_cp,
+                    best_move=move.uci(),
+                    arrow_uci=move.uci(),
+                    cpl=0.0,
+                    classification="best",
+                ))
+                if move_callback:
+                    move_callback(ply, total_moves, san)
+                continue
+
             best_result = engine.analyse(board, limit, multipv=2)
             # multipv returns a list; first entry is best move
             if isinstance(best_result, list):

@@ -137,6 +137,7 @@ class AnalysisJob(Base):
     worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     game: Mapped[Game] = relationship(back_populates="analysis_jobs")
 
@@ -151,6 +152,10 @@ class WorkerHeartbeat(Base):
     jobs_completed: Mapped[int] = mapped_column(Integer, default=0)
     jobs_failed: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    cpu_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    cpu_cores: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    memory_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stockfish_binary: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class Lc0GameAnalysis(Base):

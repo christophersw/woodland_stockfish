@@ -41,6 +41,7 @@ def main() -> None:
     settings = get_settings()
     parser = argparse.ArgumentParser(description="Lc0 WDL analysis worker")
     parser.add_argument("--lc0-path", default=settings.lc0_path)
+    parser.add_argument("--lc0-network", default=settings.lc0_network)
     parser.add_argument("--nodes", type=int, default=settings.lc0_nodes)
     parser.add_argument("--poll-interval", type=float, default=5.0)
     parser.add_argument("--limit", type=int, default=None)
@@ -56,6 +57,7 @@ def main() -> None:
 
     run_worker(
         lc0_path=args.lc0_path,
+        lc0_network=args.lc0_network,
         nodes=args.nodes,
         poll_interval=args.poll_interval,
         limit=args.limit,

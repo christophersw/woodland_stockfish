@@ -53,6 +53,10 @@ def build_stockfish_cmd() -> list[str]:
     if threads:
         cmd += ["--threads", threads]
 
+    hash_mb = _env("ANALYSIS_HASH_MB")
+    if hash_mb:
+        cmd += ["--hash", hash_mb]
+
     if _flag("SF_ENQUEUE_ONLY"):
         cmd.append("--enqueue-only")
     elif _flag("SF_ENQUEUE"):
@@ -82,6 +86,10 @@ def build_lc0_cmd() -> list[str]:
     lc0_path = _env("LC0_PATH")
     if lc0_path:
         cmd += ["--lc0-path", lc0_path]
+
+    lc0_network = _env("LC0_NETWORK")
+    if lc0_network:
+        cmd += ["--lc0-network", lc0_network]
 
     nodes = _env("LC0_NODES")
     if nodes:

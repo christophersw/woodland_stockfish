@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--stockfish", default=settings.stockfish_path, help="Path to Stockfish binary")
     parser.add_argument("--depth", type=int, default=settings.analysis_depth, help="Analysis depth (default 20)")
     parser.add_argument("--threads", type=int, default=settings.analysis_threads, help="Stockfish threads per game")
+    parser.add_argument("--hash", type=int, default=settings.analysis_hash_mb, dest="hash_mb", help="Stockfish hash table size in MB (default 256)")
     parser.add_argument("--enqueue", action="store_true", help="Enqueue unanalyzed games before starting")
     parser.add_argument("--enqueue-only", action="store_true", help="Enqueue jobs and exit without running worker")
     parser.add_argument("--enqueue-limit", type=int, default=None, help="Max games to enqueue (default: all)")
@@ -93,6 +94,7 @@ def main() -> None:
         stockfish_path=sf_path,
         depth=args.depth,
         threads=args.threads,
+        hash_mb=args.hash_mb,
         poll_interval=0.0 if args.no_poll else args.poll_interval,
         limit=args.limit,
     )

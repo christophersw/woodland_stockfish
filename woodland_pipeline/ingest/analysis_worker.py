@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
 import socket
 import sys
 import time
@@ -20,6 +22,49 @@ from woodland_pipeline.storage.models import AnalysisJob, Game, GameAnalysis, Mo
 log = logging.getLogger(__name__)
 
 _WORKER_ID = socket.gethostname()
+
+
+def _collect_worker_info(stockfish_path: str) -> dict:
+    """Collect CPU model, core count, total RAM, and Stockfish binary path."""
+    cpu_model: str | None = None
+    cpu_cores: int | None = None
+    memory_mb: int | None = None
+
+    try:
+        cpu_cores = os.cpu_count()
+    except Exception:
+        pass
+
+    try:
+        if platform.system() == "Linux":
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        cpu_model = line.split(":", 1)[1].strip()
+                        break
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal"):
+                        memory_mb = int(line.split()[1]) // 1024
+                        break
+        elif platform.system() == "Darwin":
+            import subprocess
+            cpu_model = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
+            ).strip()
+            mem_bytes = int(subprocess.check_output(
+                ["sysctl", "-n", "hw.memsize"], text=True
+            ).strip())
+            memory_mb = mem_bytes // (1024 * 1024)
+    except Exception:
+        pass
+
+    return {
+        "cpu_model": cpu_model,
+        "cpu_cores": cpu_cores,
+        "memory_mb": memory_mb,
+        "stockfish_binary": stockfish_path,
+    }
 
 
 @dataclass
@@ -136,11 +181,19 @@ def _mark_completed(job_id: int) -> None:
         if job:
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
+            if job.started_at:
+                elapsed = job.completed_at - job.started_at.replace(tzinfo=timezone.utc)
+                job.duration_seconds = elapsed.total_seconds()
             session.commit()
 
 
-def _heartbeat(status: str, current_game_id: str | None = None,
-               jobs_completed: int = 0, jobs_failed: int = 0) -> None:
+def _heartbeat(
+    status: str,
+    current_game_id: str | None = None,
+    jobs_completed: int = 0,
+    jobs_failed: int = 0,
+    worker_info: dict | None = None,
+) -> None:
     """Upsert a heartbeat row for this worker so the status page can detect crashes."""
     try:
         with get_session() as session:
@@ -156,6 +209,11 @@ def _heartbeat(status: str, current_game_id: str | None = None,
             row.current_game_id = current_game_id
             row.jobs_completed = jobs_completed
             row.jobs_failed = jobs_failed
+            if worker_info:
+                row.cpu_model = worker_info.get("cpu_model")
+                row.cpu_cores = worker_info.get("cpu_cores")
+                row.memory_mb = worker_info.get("memory_mb")
+                row.stockfish_binary = worker_info.get("stockfish_binary")
             session.commit()
     except Exception:
         log.warning("Failed to write heartbeat", exc_info=True)
@@ -200,7 +258,7 @@ def _recover_stale_jobs() -> int:
         return result.rowcount
 
 
-def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, poll_interval: float = 5.0, limit: int | None = None) -> None:
+def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: int = 256, poll_interval: float = 5.0, limit: int | None = None) -> None:
     """
     Main worker loop. Continuously claims and processes jobs until no more remain.
     Set poll_interval=0 to exit immediately when the queue is empty.
@@ -210,7 +268,15 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, poll_inte
     recovered = _recover_stale_jobs()
     if recovered:
         log.info("Recovered %d stale job(s) back to pending.", recovered)
-    log.info("Worker starting. stockfish=%s depth=%d threads=%d limit=%s", stockfish_path, depth, threads, limit or "∞")
+    worker_info = _collect_worker_info(stockfish_path)
+    log.info(
+        "Worker starting. stockfish=%s depth=%d threads=%d hash=%dMB cpu=%s cores=%s ram=%sMB limit=%s",
+        stockfish_path, depth, threads, hash_mb,
+        worker_info.get("cpu_model", "unknown"),
+        worker_info.get("cpu_cores"),
+        worker_info.get("memory_mb"),
+        limit or "∞",
+    )
 
     # Count pending jobs for the progress bar total
     with get_session() as session:
@@ -225,7 +291,7 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, poll_inte
     _LOG_INTERVAL = 10   # emit a summary log every N completed jobs when not in TTY
     bar = tqdm(total=total, unit="game", desc="Analyzing", dynamic_ncols=True) if _IS_TTY else None
 
-    _heartbeat("starting", jobs_completed=0, jobs_failed=0)
+    _heartbeat("starting", jobs_completed=0, jobs_failed=0, worker_info=worker_info)
 
     try:
         while True:
@@ -267,7 +333,7 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, poll_inte
                     move_bar.refresh()
 
                 result = analyze_pgn(pgn_text, stockfish_path=stockfish_path,
-                                     depth=depth, threads=threads, move_callback=on_move)
+                                     depth=depth, threads=threads, hash_mb=hash_mb, move_callback=on_move)
                 _save_analysis(job, result)
                 _mark_completed(job.id)
                 processed += 1

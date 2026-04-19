@@ -183,6 +183,7 @@ def _recover_stale_jobs() -> int:
 
 def run_worker(
     lc0_path: str,
+    lc0_network: str = "",
     nodes: int = 800,
     poll_interval: float = 5.0,
     limit: int | None = None,
@@ -250,7 +251,7 @@ def run_worker(
 
                 try:
                     result = analyze_pgn(pgn_text, lc0_path=lc0_path, nodes=nodes,
-                                         move_callback=on_move)
+                                         move_callback=on_move, weights_path=lc0_network)
                 finally:
                     if move_bar is not None:
                         move_bar.close()
