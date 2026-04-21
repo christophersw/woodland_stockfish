@@ -1,5 +1,15 @@
 # stockfish-pipeline
 
+Archived repository.
+
+This repo is no longer a deployment target.
+
+Canonical replacements:
+- Railway dispatcher: `woodland_dispatchers`
+- Stockfish RunPod worker: `woodland_chess_runpod`
+
+Keep this repo only as historical/source material unless you intentionally migrate additional code out of it.
+
 Stockfish analysis pipeline for Woodland Chess.
 
 This repository contains:
